@@ -1,5 +1,12 @@
+using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.FileProviders.Physical;
 using Microsoft.Extensions.Hosting;
@@ -40,7 +47,7 @@ namespace R8.FileMonitor
             };
         }
 
-        private readonly ConcurrentDictionary<string, FileChange> _cachedFiles = new();
+        private readonly ConcurrentDictionary<string, FileChange> _cachedFiles = new ConcurrentDictionary<string, FileChange>();
 
         private PhysicalFileProvider _watcher;
 
@@ -48,7 +55,7 @@ namespace R8.FileMonitor
 
         private bool _hasChanges;
 
-        private static readonly ReaderWriterLockSlim Lock = new();
+        private static readonly ReaderWriterLockSlim Lock = new ReaderWriterLockSlim();
 
         private const string StartState = "--BEGIN";
         private const string EndState = "--END";
@@ -202,20 +209,20 @@ namespace R8.FileMonitor
 
                     var deletedFiles = this._cachedFiles
                         .Where(cachedFile => diskFiles.All(diskFile => !diskFile.Equals(cachedFile.Key, StringComparison.OrdinalIgnoreCase)))
-                        .ToDictionary(cachedFile => cachedFile.Key, cachedFile => cachedFile.Value);
+                        .Select(cachedFile=>cachedFile.Key)
+                        .ToList();
                     if (deletedFiles.Any())
                     {
                         foreach (var deletedFile in deletedFiles)
                         {
-                            var deleted = this._cachedFiles.TryRemove(deletedFile);
-                            if (deleted)
+                            if (this._cachedFiles.TryRemove(deletedFile, out _))
                             {
-                                _logger.LogDebug("`{DeletedFileKey}` deleted", deletedFile.Key);
+                                _logger.LogDebug("`{DeletedFileKey}` deleted", deletedFile);
                                 _hasChanges = true;
                             }
                             else
                             {
-                                _logger.LogError("Fail to delete `{DeletedFileKey}`", deletedFile.Key);
+                                _logger.LogError("Fail to delete `{DeletedFileKey}`", deletedFile);
                             }
                         }
                     }
@@ -245,19 +252,12 @@ namespace R8.FileMonitor
                 return;
             }
 
-            var fileStreamOptions = new FileStreamOptions
-            {
-                Access = FileAccess.Read,
-                Mode = FileMode.OpenOrCreate,
-                Options = FileOptions.SequentialScan,
-                Share = FileShare.Read
-            };
-            FileStream fileStream = null;
+            FileStream? fileStream = null;
             try
             {
                 Lock.EnterWriteLock();
 
-                fileStream = new FileStream(_options.OutputFullPath, fileStreamOptions);
+                fileStream = new FileStream(_options.OutputFullPath, FileMode.OpenOrCreate, FileAccess.Read, FileShare.Read, 1024, FileOptions.SequentialScan);
                 var sr = new StreamReader(fileStream);
                 while (!sr.EndOfStream)
                 {
@@ -339,13 +339,15 @@ namespace R8.FileMonitor
         {
             for (var i = 0; i < this._cachedFiles.Count; i++)
             {
-                var cachedFile = this._cachedFiles.ElementAt(i);
-                var cachedFullPath = Path.Combine(_options.FullPath, cachedFile.Key);
-                if (!string.IsNullOrEmpty(cachedFile.Value.Checksum))
+                var (cachedFile, cachedFC) = this._cachedFiles.ElementAt(i);
+                var cachedFullPath = Path.Combine(_options.FullPath, cachedFile);
+                if (!string.IsNullOrEmpty(cachedFC.Checksum))
                     continue;
 
                 using (var md5 = new ChecksumCalculator(_logger))
-                    cachedFile.Value.Checksum = md5.GetMd5(cachedFullPath);
+                {
+                    cachedFC.Checksum = md5.GetMd5(cachedFullPath);
+                }
             }
         }
 

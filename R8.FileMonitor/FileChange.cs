@@ -1,7 +1,10 @@
-namespace R8.FileMonitor;
+using System;
 
-public record FileChange
+namespace R8.FileMonitor
 {
-    public DateTime LastModified { get; set; }
-    public string? Checksum { get; set; }
+    public struct FileChange
+    {
+        public DateTime LastModified { get; set; }
+        public string? Checksum { get; set; }
+    }
 }

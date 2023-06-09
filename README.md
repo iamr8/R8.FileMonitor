@@ -1,6 +1,9 @@
 # FileMonitor
 Monitoring file changes in a directory and its subdirectories.
 
+**Supported frameworks >=** `netstandard2.1`
+
+---
 ## Usage
 ```csharp
 // ... other services

@@ -1,4 +1,8 @@
-﻿using System.Security.Cryptography;
+﻿using System;
+using System.IO;
+using System.Security.Cryptography;
+using System.Threading;
+
 using Microsoft.Extensions.Logging;
 
 namespace R8.FileMonitor
@@ -7,7 +11,7 @@ namespace R8.FileMonitor
     {
         private readonly ILogger _logger;
 
-        private readonly ReaderWriterLockSlim _lock = new();
+        private readonly ReaderWriterLockSlim _lock = new ReaderWriterLockSlim();
 
         public ChecksumCalculator(ILogger logger)
         {
@@ -16,26 +20,18 @@ namespace R8.FileMonitor
 
         public string? GetMd5(string fullFilePath)
         {
-            var fileStreamOptions = new FileStreamOptions
-            {
-                Access = FileAccess.Read,
-                Mode = FileMode.Open,
-                Options = FileOptions.SequentialScan,
-                Share = FileShare.Read
-            };
-
-            FileStream fileStream = null;
+            FileStream? fileStream = null;
             try
             {
                 _lock.EnterWriteLock();
 
-                using var md5 = MD5.Create();
-                fileStream = new FileStream(fullFilePath, fileStreamOptions);
-                var hash = md5.ComputeHash(fileStream);
-                var output = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
-
-                md5.Dispose();
-                return output;
+                using (var md5 = MD5.Create())
+                {
+                    fileStream = new FileStream(fullFilePath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024, FileOptions.SequentialScan);
+                    var hash = md5.ComputeHash(fileStream);
+                    var output = BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
+                    return output;
+                }
             }
             catch (Exception e)
             {
@@ -43,9 +39,9 @@ namespace R8.FileMonitor
             }
             finally
             {
-                _lock.ExitWriteLock();
-
                 fileStream?.Dispose();
+
+                _lock.ExitWriteLock();
             }
 
             return null;

@@ -1,3 +1,6 @@
+using System;
+using System.Linq;
+
 namespace R8.FileMonitor
 {
     public class WatcherOptions
